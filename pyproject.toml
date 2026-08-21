@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "torchcwt"
-version = "0.1.0"
+version = "0.1.1"
 description = "Torch-native continuous wavelet transform (Morlet) via torch.fft — a pure-PyTorch replacement for fCWT"
 readme = "README.md"
 license = { text = "MIT" }

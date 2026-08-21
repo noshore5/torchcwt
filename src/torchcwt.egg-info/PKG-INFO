@@ -1,0 +1,151 @@
+Metadata-Version: 2.4
+Name: torchcwt
+Version: 0.1.0
+Summary: Torch-native continuous wavelet transform (Morlet) via torch.fft — a pure-PyTorch replacement for fCWT
+Author: torchcwt contributors
+License: MIT
+Project-URL: Homepage, https://github.com/noshore5/torchcwt
+Project-URL: Repository, https://github.com/noshore5/torchcwt
+Project-URL: Issues, https://github.com/noshore5/torchcwt/issues
+Keywords: cwt,continuous-wavelet-transform,morlet,wavelet,torch,pytorch,signal-processing,fcwt
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering
+Classifier: Topic :: Scientific/Engineering :: Information Analysis
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.20
+Requires-Dist: torch>=1.12
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Dynamic: license-file
+
+# torchcwt
+
+**Torch-native continuous wavelet transform (Morlet)** — a from-scratch, pure-PyTorch implementation of the continuous wavelet transform using the Fourier convolution theorem (`torch.fft`). No dependency on the `fcwt` package or its FFTW backend.
+
+Designed as a numerical near-drop-in replacement for `fcwt.cwt()` with the same Morlet wavelet (`fb=2.0`), log-frequency scale grid, and (near-)interchangeable coefficient magnitudes/phases.
+
+## Features
+
+- **Pure PyTorch** — runs on CPU, CUDA, or MPS (device is taken from the input tensor)
+- **Batched** — arbitrary leading dimensions (`[..., T]`); processes channels/trials in one call
+- **NumPy-friendly wrappers** — `transform()` / `transform_batch()` for drop-in use with existing pipelines
+- **Cached filter bank** — frequency-domain Morlet filters built once per configuration
+- **Cone-of-influence compatible** — uses the same support formula as fCWT (`support = floor(fb * scale * 3)`)
+
+## Installation
+
+### From Git (recommended while unpublished on PyPI)
+
+```bash
+pip install "git+https://github.com/noshore5/torchcwt.git"
+```
+
+### Editable / local development
+
+```bash
+git clone https://github.com/noshore5/torchcwt.git
+cd torchcwt
+pip install -e .
+```
+
+### Optional: development extras
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Quick start
+
+### NumPy interface (closest to typical fCWT usage)
+
+```python
+import numpy as np
+from torchcwt import transform, transform_batch
+
+# Single 1-D signal
+signal = np.random.randn(4096).astype(np.float32)
+fs = 256.0  # Hz
+
+coeffs, freqs = transform(
+    signal,
+    frame_rate=fs,
+    highest=40.0,   # f1
+    lowest=1.0,     # f0
+    nfreqs=32,
+)
+# coeffs: complex64, shape (nfreqs, T)
+# freqs:  float32,  shape (nfreqs,)  — highest freq first, lowest last
+
+# Batched: many signals at once
+signals = np.random.randn(16, 4096).astype(np.float32)  # [n_signals, T]
+coeffs_b, freqs_b = transform_batch(
+    signals,
+    frame_rate=fs,
+    highest=40.0,
+    lowest=1.0,
+    nfreqs=32,
+    device="cuda",  # optional; defaults to CPU
+)
+# coeffs_b: complex64, shape (16, nfreqs, T)
+```
+
+### Pure torch interface (preferred for GPU pipelines)
+
+```python
+import torch
+from torchcwt import cwt_torch
+
+x = torch.randn(8, 4, 4096, device="cuda")  # e.g. [batch, channels, time]
+coeffs, freqs = cwt_torch(
+    x,
+    sampling_rate=256.0,
+    f0=1.0,
+    f1=40.0,
+    fn=32,
+)
+# coeffs: complex64, shape [8, 4, 32, 4096]
+# freqs:  float32 on same device, shape [32]
+```
+
+## API
+
+| Function | Description |
+|----------|-------------|
+| `cwt_torch(signal, sampling_rate, f0, f1, fn, *, fb=2.0)` | Core batched CWT. `signal` is real `[..., T]`. Returns `(coeffs [..., fn, T] complex64, freqs [fn] float32)`. |
+| `transform(signal1, frame_rate, highest, lowest, nfreqs=100, *, device=None)` | 1-D NumPy → NumPy wrapper (matches common fCWT call signatures). |
+| `transform_batch(signals, frame_rate, highest, lowest, nfreqs=100, *, device=None)` | 2-D NumPy `[n, T]` → NumPy batch wrapper. |
+| `MORLET_FB` | Bandwidth parameter (default `2.0`, matching fCWT’s `Morlet(2.0)`). |
+| `MORLET_AMPLITUDE_SCALE` | Empirically calibrated peak amplitude of the frequency-domain filters. |
+
+## Algorithm notes
+
+The CWT is computed as:
+
+1. Zero-pad the signal to the next power of two, with padding sized to the widest (lowest-frequency) wavelet support.
+2. `rfft` the padded signal.
+3. Multiply by a precomputed frequency-domain Morlet filter bank (Gaussian bumps centered on the log-spaced frequencies, flat peak amplitude).
+4. Reconstruct via a full complex `ifft` (analytic signal; negative frequencies left at zero).
+5. Crop the padding to recover the original time length.
+
+Frequency grid is log-spaced from `f1` (highest) down to `f0` (lowest), matching fCWT’s ordering.
+
+See the module docstring in `torchcwt/cwt.py` for the full derivation, amplitude calibration, and references (Torrence & Compo 1998; Arts & van den Bleek, Nature Computational Science 2022).
+
+## Requirements
+
+- Python ≥ 3.9
+- NumPy ≥ 1.20
+- PyTorch ≥ 1.12
+
+## License
+
+MIT
