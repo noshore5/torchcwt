@@ -101,7 +101,7 @@ BACKENDS = {
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--devices", default="cpu,cuda")
+    ap.add_argument("--devices", default="cuda")  # GPU is the comparison that matters at hour-scale durations; pass --devices cpu,cuda for a small-scale CPU sanity check
     ap.add_argument("--channels", type=int, default=23)
     ap.add_argument("--fs", type=float, default=256.0)
     ap.add_argument("--durations", default="60,600,3600,7200")  # 1min..2h, matches real EEG-scale usage
