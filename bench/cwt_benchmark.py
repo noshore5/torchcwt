@@ -88,6 +88,11 @@ def run_ssqueezepy(signals: np.ndarray, fs: float, device: str) -> np.ndarray:
     out = []
     for ch in range(signals.shape[0]):
         cwt_matrix, *_ = ssq.cwt(signals[ch], wavelet="morlet", fs=fs, scales=scales)
+        # SSQ_GPU=1 returns a live CUDA torch tensor, not a numpy array --
+        # move it home before stacking (this is what actually crashed the
+        # cuda path: np.stack() on a CUDA tensor raises, it never OOMed).
+        if hasattr(cwt_matrix, "detach"):
+            cwt_matrix = cwt_matrix.detach().cpu().numpy()
         out.append(cwt_matrix)
     return np.stack(out, axis=0)
 
@@ -104,7 +109,7 @@ def main() -> None:
     ap.add_argument("--devices", default="cuda")  # GPU is the comparison that matters at hour-scale durations; pass --devices cpu,cuda for a small-scale CPU sanity check
     ap.add_argument("--channels", type=int, default=23)
     ap.add_argument("--fs", type=float, default=256.0)
-    ap.add_argument("--durations", default="60,600,3600,7200")  # 1min..2h, matches real EEG-scale usage
+    ap.add_argument("--durations", default="60,300,600")  # 1min/5min/10min -- enough to see which backend is fastest
     ap.add_argument("--backends", default=",".join(BACKENDS))
     args = ap.parse_args()
 
