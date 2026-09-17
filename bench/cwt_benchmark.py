@@ -105,7 +105,7 @@ def main() -> None:
     backends = [b for b in args.backends.split(",") if b in BACKENDS]
 
     print(f"{'backend':<12} {'device':<6} {'duration_s':>10} {'shape':>18} "
-          f"{'total_s':>9} {'ms/ch':>8} {'peak_MiB':>9}")
+          f"{'total_s':>9} {'ms/ch':>8} {'peak_MiB':>9}", flush=True)
 
     for duration_s in durations:
         signals = make_dummy_signals(args.channels, args.fs, duration_s)
@@ -113,6 +113,7 @@ def main() -> None:
             for name in backends:
                 fn = BACKENDS[name]
                 try:
+                    print(f"... starting {name} on {device} for duration_s={duration_s:.0f}", flush=True)
                     _reset_mem(device)
                     t0 = time.perf_counter()
                     out = fn(signals, args.fs, device)
@@ -122,10 +123,10 @@ def main() -> None:
                     peak = _peak_mib(device)
                     peak_str = f"{peak:9.1f}" if peak is not None else "      n/a"
                     print(f"{name:<12} {device:<6} {duration_s:>10.1f} {str(out.shape):>18} "
-                          f"{total_s:>9.3f} {total_s / args.channels * 1000:>8.2f} {peak_str}")
+                          f"{total_s:>9.3f} {total_s / args.channels * 1000:>8.2f} {peak_str}", flush=True)
                 except Exception as exc:  # keep going -- a broken competitor shouldn't kill the sweep
                     print(f"{name:<12} {device:<6} {duration_s:>10.1f} {'FAILED':>18} "
-                          f"{'':>9} {'':>8} {'':>9}  ({exc})")
+                          f"{'':>9} {'':>8} {'':>9}  ({exc})", flush=True)
 
 
 if __name__ == "__main__":

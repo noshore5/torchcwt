@@ -99,11 +99,15 @@ docker build -f bench/Dockerfile -t torchcwt-bench . >> /root/bench.log 2>&1 \
   && echo "docker build ok" >> /root/bench.log \
   || { echo "docker build FAILED" >> /root/bench.log; exit 1; }
 
+( while true; do aws s3 cp /root/bench.log "\$PFX/bench.log" 2>/dev/null; sleep 15; done ) &
+TAILER=\$!
+
 set +e
-docker run --name torchcwt-bench --gpus all --rm torchcwt-bench \
-  python cwt_benchmark.py --devices cpu,cuda >> /root/bench.log 2>&1
+docker run --name torchcwt-bench --gpus all --rm -e PYTHONUNBUFFERED=1 torchcwt-bench \
+  python -u cwt_benchmark.py --devices cpu,cuda >> /root/bench.log 2>&1
 RC=\$?
 set -e
+kill \$TAILER 2>/dev/null || true
 exit \$RC
 EOF
 )
