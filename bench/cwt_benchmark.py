@@ -142,13 +142,19 @@ def _warm_up(backends: list[str], device: str, fs: float, channels: int) -> None
 
 
 def main() -> None:
+    global FN
     ap = argparse.ArgumentParser()
     ap.add_argument("--devices", default="cuda")  # GPU is the comparison that matters at hour-scale durations; pass --devices cpu,cuda for a small-scale CPU sanity check
     ap.add_argument("--channels", type=int, default=23)
     ap.add_argument("--fs", type=float, default=256.0)
     ap.add_argument("--durations", default="60,300,600")  # 1min/5min/10min -- enough to see which backend is fastest
     ap.add_argument("--backends", default=",".join(BACKENDS))
+    ap.add_argument("--n-scales", type=int, default=FN,
+                     help="frequency scales in the CWT grid (default 8, matching "
+                          "EEG_Benchmarks' current band assumption); memory scales "
+                          "roughly linearly with n_scales x duration_s")
     args = ap.parse_args()
+    FN = args.n_scales
 
     devices = available_devices(args.devices.split(","))
     durations = [float(d) for d in args.durations.split(",")]
