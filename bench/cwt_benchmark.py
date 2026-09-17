@@ -107,6 +107,40 @@ BACKENDS = {
 }
 
 
+def _magnitude_corr(a: np.ndarray, b: np.ndarray) -> float:
+    """Pearson correlation of |CWT| between two backends' outputs, flattened.
+    Not a bit-exact parity check (wavelet normalization differs per library,
+    see adapter comments) -- just enough to confirm nobody is producing
+    garbage on the same frequency grid.
+    """
+    ma, mb = np.abs(a).ravel(), np.abs(b).ravel()
+    if ma.shape != mb.shape:
+        return float("nan")
+    ma = ma - ma.mean()
+    mb = mb - mb.mean()
+    denom = np.linalg.norm(ma) * np.linalg.norm(mb)
+    return float((ma @ mb) / denom) if denom > 0 else float("nan")
+
+
+def _warm_up(backends: list[str], device: str, fs: float, channels: int) -> None:
+    """Run every backend once on a tiny throwaway signal before any timed
+    call, on every device that will be used. Without this, whichever
+    backend happens to run first in the sweep eats a one-time CUDA
+    context / cuFFT-plan-cache / JIT warm-up cost that later backends
+    don't pay -- that's what made torch_cwt look artificially slow at the
+    smallest duration in earlier runs. Warming every backend up-front
+    makes the timed sweep itself apples-to-apples.
+    """
+    tiny = make_dummy_signals(channels, fs, 4.0, seed=999)
+    for name in backends:
+        try:
+            BACKENDS[name](tiny, fs, device)
+            if device == "cuda":
+                torch.cuda.synchronize()
+        except Exception as exc:
+            print(f"... warm-up failed for {name} on {device}: {exc}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--devices", default="cuda")  # GPU is the comparison that matters at hour-scale durations; pass --devices cpu,cuda for a small-scale CPU sanity check
@@ -120,8 +154,27 @@ def main() -> None:
     durations = [float(d) for d in args.durations.split(",")]
     backends = [b for b in args.backends.split(",") if b in BACKENDS]
 
-    print(f"{'backend':<12} {'device':<6} {'duration_s':>10} {'shape':>18} "
+    print(f"{'backend':<12} {'device':<6} {'duration_s':>10} {'shape':>18} {'dtype':>10} "
           f"{'total_s':>9} {'ms/ch':>8} {'peak_MiB':>9}", flush=True)
+
+    # Correctness sanity check on a small shared signal, once per device,
+    # before any timing -- pairwise magnitude correlation across backends
+    # on the same frequency grid. This isn't wavelet-normalization-exact
+    # (see adapter comments) but catches anyone producing garbage.
+    for device in devices:
+        _warm_up(backends, device, args.fs, args.channels)
+        probe = make_dummy_signals(args.channels, args.fs, 4.0, seed=1)
+        outs = {}
+        for name in backends:
+            try:
+                outs[name] = BACKENDS[name](probe, args.fs, device)
+            except Exception as exc:
+                print(f"... correctness probe failed for {name} on {device}: {exc}", flush=True)
+        names = list(outs)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                corr = _magnitude_corr(outs[a], outs[b])
+                print(f"... |CWT| correlation {a} vs {b} on {device}: {corr:.3f}", flush=True)
 
     for duration_s in durations:
         signals = make_dummy_signals(args.channels, args.fs, duration_s)
@@ -138,10 +191,10 @@ def main() -> None:
                     total_s = time.perf_counter() - t0
                     peak = _peak_mib(device)
                     peak_str = f"{peak:9.1f}" if peak is not None else "      n/a"
-                    print(f"{name:<12} {device:<6} {duration_s:>10.1f} {str(out.shape):>18} "
+                    print(f"{name:<12} {device:<6} {duration_s:>10.1f} {str(out.shape):>18} {str(out.dtype):>10} "
                           f"{total_s:>9.3f} {total_s / args.channels * 1000:>8.2f} {peak_str}", flush=True)
                 except Exception as exc:  # keep going -- a broken competitor shouldn't kill the sweep
-                    print(f"{name:<12} {device:<6} {duration_s:>10.1f} {'FAILED':>18} "
+                    print(f"{name:<12} {device:<6} {duration_s:>10.1f} {'FAILED':>18} {'':>10} "
                           f"{'':>9} {'':>8} {'':>9}  ({exc})", flush=True)
 
 
