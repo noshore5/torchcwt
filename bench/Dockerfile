@@ -7,8 +7,10 @@ WORKDIR /bench
 # Install this repo's torch_cwt package (editable) plus the two competitors.
 COPY pyproject.toml /torchcwt/pyproject.toml
 COPY src /torchcwt/src
+# cupy-cuda12x is required alongside torch for ssqueezepy's SSQ_GPU=1 path
+# (matches the base image's CUDA 12.1 toolkit).
 RUN pip install --no-cache-dir -e /torchcwt \
-    && pip install --no-cache-dir ptwt ssqueezepy
+    && pip install --no-cache-dir ptwt ssqueezepy cupy-cuda12x
 
 COPY bench/make_dummy_data.py bench/cwt_benchmark.py /bench/
 

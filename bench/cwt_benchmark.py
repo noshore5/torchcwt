@@ -76,10 +76,18 @@ def run_ssqueezepy(signals: np.ndarray, fs: float, device: str) -> np.ndarray:
     os.environ["SSQ_GPU"] = "1" if device == "cuda" else "0"
     import ssqueezepy as ssq
 
-    freqs = np.geomspace(F0, F1, FN)
+    # Same scale=fs/freq convention torch_cwt documents (cwt.py's own
+    # "scale = sampling_rate/freq"), passed explicitly so ssqueezepy uses
+    # our FN=8 grid instead of its own auto "scales='log'" (360 scales) --
+    # not a bit-exact wavelet match (different center-frequency
+    # normalization per library, same caveat as the ptwt adapter), but same
+    # frequency axis for a fair shape/throughput comparison.
+    freqs = np.geomspace(F0, F1, FN)[::-1]
+    scales = fs / freqs
+
     out = []
     for ch in range(signals.shape[0]):
-        cwt_matrix, *_ = ssq.cwt(signals[ch], wavelet="morlet", fs=fs, scales="log")
+        cwt_matrix, *_ = ssq.cwt(signals[ch], wavelet="morlet", fs=fs, scales=scales)
         out.append(cwt_matrix)
     return np.stack(out, axis=0)
 
