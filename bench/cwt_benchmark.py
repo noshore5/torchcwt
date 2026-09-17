@@ -83,15 +83,24 @@ def run_ssqueezepy(signals: np.ndarray, fs: float, device: str) -> np.ndarray:
 
     os.environ["SSQ_GPU"] = "1" if device == "cuda" else "0"
     import ssqueezepy as ssq
+    from ssqueezepy.experimental import freq_to_scale
 
-    # Same scale=fs/freq convention torch_cwt documents (cwt.py's own
-    # "scale = sampling_rate/freq"), passed explicitly so ssqueezepy uses
-    # our FN=8 grid instead of its own auto "scales='log'" (360 scales) --
-    # not a bit-exact wavelet match (different center-frequency
-    # normalization per library, same caveat as the ptwt adapter), but same
-    # frequency axis for a fair shape/throughput comparison.
-    freqs = np.geomspace(F0, F1, FN)[::-1]
-    scales = fs / freqs
+    # torch_cwt's own "scale = sampling_rate/freq" convention (copied here
+    # in earlier versions of this adapter) does NOT hold for ssqueezepy's
+    # Morlet -- verified empirically with a pure 20 Hz test tone: that
+    # convention put the energy peak at the WRONG scale index (~10 Hz, off
+    # by ~2x), which is what caused the negative |CWT| correlation seen in
+    # prior runs (torch_cwt/ptwt vs ssqueezepy: -0.16 to -0.19). ssqueezepy
+    # ships its own freq<->scale conversion (`ssqueezepy.experimental
+    # .freq_to_scale`/`scale_to_freq`) that accounts for its wavelet's own
+    # center-frequency normalization -- use that instead. It requires
+    # ascending-frequency input and returns descending scales (needs an
+    # explicit sort to satisfy process_scales' ascending-scale requirement);
+    # sorted ascending-scale order happens to already put the highest
+    # frequency at index 0, matching torch_cwt's/ptwt's index convention
+    # with no extra reversal needed (confirmed against the same test tone).
+    freqs_asc = np.geomspace(F0, F1, FN)
+    scales = np.sort(freq_to_scale(freqs_asc, wavelet="morlet", N=signals.shape[-1], fs=fs))
 
     # ssqueezepy.cwt() natively batches a 2-D [n_channels, T] input (its
     # default vectorized=True path) -- looping per-channel in Python here
