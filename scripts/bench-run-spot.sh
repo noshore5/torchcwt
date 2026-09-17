@@ -104,7 +104,7 @@ TAILER=\$!
 
 set +e
 docker run --name torchcwt-bench --gpus all --rm -e PYTHONUNBUFFERED=1 torchcwt-bench \
-  python -u cwt_benchmark.py --devices cuda >> /root/bench.log 2>&1
+  python -u cwt_benchmark.py --devices cuda --durations 3600 >> /root/bench.log 2>&1
 RC=\$?
 set -e
 kill \$TAILER 2>/dev/null || true
