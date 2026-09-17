@@ -65,7 +65,13 @@ def run_ptwt(signals: np.ndarray, fs: float, device: str) -> np.ndarray:
     scales = central_freq * fs / freqs
 
     x = torch.from_numpy(np.ascontiguousarray(signals, dtype=np.float32)).to(device)
-    coeffs, _ = ptwt.cwt(x, scales, wavelet, sampling_period=1.0 / fs)
+    # scales defaults to float64 (numpy); ptwt promotes its filter bank and
+    # output to match, giving complex128 output even though x is float32 --
+    # that's not a fair comparison against torch_cwt/ssqueezepy's complex64
+    # (costs ptwt extra memory+time it wouldn't need at matched precision).
+    # Force float32 scales so ptwt builds float32 filters -> complex64 out.
+    scales_t = torch.as_tensor(scales, dtype=torch.float32, device=device)
+    coeffs, _ = ptwt.cwt(x, scales_t, wavelet, sampling_period=1.0 / fs)
     # ptwt returns [n_scales, n_channels, T]; reorder to [n_channels, n_scales, T]
     return coeffs.permute(1, 0, 2).detach().cpu().numpy()
 
@@ -180,7 +186,18 @@ def main() -> None:
         for i, a in enumerate(names):
             for b in names[i + 1:]:
                 corr = _magnitude_corr(outs[a], outs[b])
-                print(f"... |CWT| correlation {a} vs {b} on {device}: {corr:.3f}", flush=True)
+                # Also test with b's frequency/scale axis (axis=1, shape is
+                # [n_channels, n_scales, T] for every adapter here) reversed
+                # -- if some backend silently re-sorts scales internally
+                # despite being handed the same freqs/scales array as the
+                # others, this flip will jump close to +1 while the
+                # unflipped correlation stays negative/near-zero, nailing
+                # down "scale-axis order mismatch" vs. "actually different
+                # computation" without guessing.
+                corr_flipped = _magnitude_corr(outs[a], outs[b][:, ::-1, :])
+                flag = "  <-- LOOKS LIKE A SCALE-AXIS ORDER FLIP" if corr_flipped > corr + 0.3 else ""
+                print(f"... |CWT| correlation {a} vs {b} on {device}: {corr:.3f} "
+                      f"(axis-flipped: {corr_flipped:.3f}){flag}", flush=True)
 
     for duration_s in durations:
         signals = make_dummy_signals(args.channels, args.fs, duration_s)
