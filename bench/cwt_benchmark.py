@@ -70,7 +70,9 @@ def run_ptwt(signals: np.ndarray, fs: float, device: str) -> np.ndarray:
     # that's not a fair comparison against torch_cwt/ssqueezepy's complex64
     # (costs ptwt extra memory+time it wouldn't need at matched precision).
     # Force float32 scales so ptwt builds float32 filters -> complex64 out.
-    scales_t = torch.as_tensor(scales, dtype=torch.float32, device=device)
+    # Keep this on CPU -- ptwt does its own device placement internally and
+    # passing a CUDA scales tensor breaks that (numpy conversion crash).
+    scales_t = torch.as_tensor(scales, dtype=torch.float32)
     coeffs, _ = ptwt.cwt(x, scales_t, wavelet, sampling_period=1.0 / fs)
     # ptwt returns [n_scales, n_channels, T]; reorder to [n_channels, n_scales, T]
     return coeffs.permute(1, 0, 2).detach().cpu().numpy()
