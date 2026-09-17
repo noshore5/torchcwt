@@ -85,16 +85,19 @@ def run_ssqueezepy(signals: np.ndarray, fs: float, device: str) -> np.ndarray:
     freqs = np.geomspace(F0, F1, FN)[::-1]
     scales = fs / freqs
 
-    out = []
-    for ch in range(signals.shape[0]):
-        cwt_matrix, *_ = ssq.cwt(signals[ch], wavelet="morlet", fs=fs, scales=scales)
-        # SSQ_GPU=1 returns a live CUDA torch tensor, not a numpy array --
-        # move it home before stacking (this is what actually crashed the
-        # cuda path: np.stack() on a CUDA tensor raises, it never OOMed).
-        if hasattr(cwt_matrix, "detach"):
-            cwt_matrix = cwt_matrix.detach().cpu().numpy()
-        out.append(cwt_matrix)
-    return np.stack(out, axis=0)
+    # ssqueezepy.cwt() natively batches a 2-D [n_channels, T] input (its
+    # default vectorized=True path) -- looping per-channel in Python here
+    # was paying ssqueezepy's per-call setup cost (wavelet/filter-bank
+    # construction, backend dispatch) 23x over, which dominated the timing
+    # at short durations. Passing the whole array in one call amortizes
+    # that setup once, like torch_cwt's and ptwt's batched adapters do.
+    cwt_matrix, *_ = ssq.cwt(signals, wavelet="morlet", fs=fs, scales=scales)
+    # SSQ_GPU=1 returns a live CUDA torch tensor, not a numpy array -- move
+    # it home before returning (this is what actually crashed the cuda
+    # path before: np.stack() on a CUDA tensor raises, it never OOMed).
+    if hasattr(cwt_matrix, "detach"):
+        cwt_matrix = cwt_matrix.detach().cpu().numpy()
+    return cwt_matrix
 
 
 BACKENDS = {
